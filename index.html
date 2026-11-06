@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Life in Weeks</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --panel: #ffffff;
+    --ink: #1c1b19;
+    --muted: #77736a;
+    --line: #d9d5cc;
+    --lived: #1c1b19;
+    --empty: transparent;
+    --empty-border: #b9b4a8;
+    --now: #d94f2b;
+    --decade: #ebe7de;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413;
+      --panel: #1d1c1a;
+      --ink: #ece9e2;
+      --muted: #9a958b;
+      --line: #34322e;
+      --lived: #ece9e2;
+      --empty-border: #4a4741;
+      --now: #ff6a3d;
+      --decade: #24231f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 16px 64px; }
+  header h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; margin: 20px 0;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .field input {
+    font: inherit; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
+  }
+  .field input[type=number] { width: 90px; }
+  .storage-note { font-size: 12px; color: var(--muted); margin-left: auto; max-width: 320px; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0 0 18px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+  .chart { display: grid; grid-template-columns: 28px 1fr; gap: 4px 6px; }
+  .week-axis {
+    grid-column: 2; display: grid; column-gap: var(--gap);
+    font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .week-axis span { text-align: center; white-space: nowrap; }
+  .year-axis {
+    display: grid; row-gap: var(--gap);
+    font-size: 10px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .year-axis span { display: flex; align-items: center; justify-content: flex-end; overflow: visible; }
+  .grid { display: grid; gap: var(--gap); }
+  .cell { border: 1px solid var(--empty-border); border-radius: 2px; }
+  .cell.lived { background: var(--lived); border-color: var(--lived); }
+  .cell.now { background: var(--now); border-color: var(--now); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  @media (prefers-reduced-motion: reduce) { .cell.now { animation: none; } }
+
+  .tip {
+    position: fixed; pointer-events: none; z-index: 10;
+    background: var(--ink); color: var(--bg); font-size: 12px;
+    padding: 5px 8px; border-radius: 5px; white-space: nowrap;
+    opacity: 0; transition: opacity .1s;
+  }
+  .empty-state { color: var(--muted); padding: 40px 0; text-align: center; }
+  footer { margin-top: 24px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Your Life in Weeks</h1>
+    <p>Each row is a year. Each box is a week. Filled boxes are weeks you've already lived.</p>
+  </header>
+
+  <section class="controls">
+    <div class="field">
+      <label for="birthday">Birthday</label>
+      <input type="date" id="birthday">
+    </div>
+    <div class="field">
+      <label for="years">Years to show</label>
+      <input type="number" id="years" min="1" max="150" step="1">
+    </div>
+    <div class="storage-note" id="storageNote"></div>
+  </section>
+
+  <section class="stats" id="stats"></section>
+
+  <section id="chartHost"></section>
+
+  <footer>Settings are saved in this browser only (localStorage + IndexedDB).</footer>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+  const DEFAULTS = { birthday: "", years: 80 };
+  const LS_KEY = "lifeInWeeks.settings";
+  const DB_NAME = "lifeInWeeks", STORE = "kv";
+  const DAY = 86400000;
+
+  const $ = id => document.getElementById(id);
+  const birthdayEl = $("birthday"), yearsEl = $("years");
+
+  // ---------- Storage: localStorage + IndexedDB mirror, with persistent-storage request ----------
+  function idb() {
+    return new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) return reject(new Error("no idb"));
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbGet(key) {
+    try {
+      const db = await idb();
+      return await new Promise((res, rej) => {
+        const r = db.transaction(STORE).objectStore(STORE).get(key);
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+    } catch { return undefined; }
+  }
+  async function idbSet(key, val) {
+    try {
+      const db = await idb();
+      await new Promise((res, rej) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.objectStore(STORE).put(val, key);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+      });
+    } catch {}
+  }
+  function lsGet() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch { return null; }
+  }
+  function lsSet(v) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(v)); } catch {}
+  }
+  async function load() {
+    const fromLs = lsGet();
+    const fromDb = await idbGet(LS_KEY);
+    const pick = [fromLs, fromDb].filter(Boolean).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))[0];
+    return { ...DEFAULTS, ...(pick || {}) };
+  }
+  function save(settings) {
+    const v = { ...settings, savedAt: Date.now() };
+    lsSet(v); idbSet(LS_KEY, v);
+  }
+  async function requestPersistence() {
+    const note = $("storageNote");
+    if (!navigator.storage || !navigator.storage.persist) {
+      note.textContent = "Saved locally. This browser doesn't support persistent storage.";
+      return;
+    }
+    let persisted = await navigator.storage.persisted();
+    if (!persisted) persisted = await navigator.storage.persist();
+    note.textContent = persisted
+      ? "✓ Saved in persistent storage — survives cache clears (not a full “clear site data”)."
+      : "Saved locally. Browser didn't grant persistent storage, so it may be evicted under storage pressure.";
+  }
+
+  // ---------- Date math ----------
+  function parseDate(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+  function addYears(d, n) {
+    const r = new Date(d.getFullYear() + n, d.getMonth(), d.getDate());
+    if (r.getMonth() !== d.getMonth()) r.setDate(0); // Feb 29 -> Feb 28
+    return r;
+  }
+  function today() { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+  function fmt(d) { return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }); }
+
+  // Current position: [age in years, week within that year (0..51)]
+  function position(birth, now) {
+    let age = now.getFullYear() - birth.getFullYear();
+    if (addYears(birth, age) > now) age--;
+    const yearStart = addYears(birth, age);
+    const week = Math.min(51, Math.floor(Math.round((now - yearStart) / DAY) / 7));
+    return { age, week };
+  }
+
+  // ---------- Render ----------
+  function render(settings) {
+    const host = $("chartHost"), stats = $("stats");
+    const birth = parseDate(settings.birthday);
+    const years = settings.years;
+    const now = today();
+
+    if (!birth || birth > now) {
+      stats.innerHTML = "";
+      host.innerHTML = `<div class="empty-state">${birth ? "That birthday is in the future." : "Enter your birthday to see your life in weeks."}</div>`;
+      return;
+    }
+
+    const { age, week } = position(birth, now);
+    const total = years * 52;
+    const livedIdx = age * 52 + week; // index of the current week
+    const lived = Math.min(livedIdx, total);
+    const remaining = Math.max(0, total - livedIdx - 1);
+    const pct = Math.min(100, (livedIdx / total) * 100);
+
+    stats.innerHTML = [
+      [lived.toLocaleString(), "weeks lived"],
+      [remaining.toLocaleString(), `weeks left of ${years} yrs`],
+      [pct.toFixed(1) + "%", "of the grid"],
+      [`${age}y ${week + 1}w`, "you are here"],
+    ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("");
+
+    // Sizing: fit 52 columns (in groups of 4 weeks) into available width.
+    // Rows are grouped by 5 years. Groups are separated by extra spacer tracks.
+    const WEEK_GROUP = 4, YEAR_GROUP = 5;
+    const colSpacers = Math.floor((52 - 1) / WEEK_GROUP);      // 12
+    const rowSpacers = Math.floor((years - 1) / YEAR_GROUP);
+    const width = host.clientWidth - 34;
+    const approx = width / 52;
+    const gap = approx > 12 ? 3 : approx > 7 ? 2 : 1;
+    const spacer = Math.max(2, gap * 2);                        // extra space between groups
+    const colTracks = 52 + colSpacers;
+    const cell = Math.floor(((width - spacer * colSpacers - gap * (colTracks - 1)) / 52) * 100) / 100;
+    host.style.setProperty("--gap", gap + "px");
+
+    const track = (n, every) => {
+      const parts = [];
+      for (let i = 0; i < n; i++) {
+        if (i > 0 && i % every === 0) parts.push(spacer + "px");
+        parts.push(cell + "px");
+      }
+      return parts.join(" ");
+    };
+    const colTemplate = track(52, WEEK_GROUP);
+    const rowTemplate = track(years, YEAR_GROUP);
+    const colOf = w => w + Math.floor(w / WEEK_GROUP) + 1;
+    const rowOf = y => y + Math.floor(y / YEAR_GROUP) + 1;
+
+    const frag = document.createDocumentFragment();
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    grid.style.gridTemplateColumns = colTemplate;
+    grid.style.gridTemplateRows = rowTemplate;
+    for (let y = 0; y < years; y++) {
+      for (let w = 0; w < 52; w++) {
+        const i = y * 52 + w;
+        const c = document.createElement("div");
+        c.className = "cell" + (i < livedIdx ? " lived" : i === livedIdx ? " now" : "");
+        c.dataset.y = y; c.dataset.w = w;
+        c.style.gridColumn = colOf(w);
+        c.style.gridRow = rowOf(y);
+        grid.appendChild(c);
+      }
+    }
+
+    const weekAxis = document.createElement("div");
+    weekAxis.className = "week-axis";
+    weekAxis.style.gridTemplateColumns = colTemplate;
+    for (let w = 1; w <= 52; w++) {
+      if (!(w === 1 || w % 10 === 0 || w === 52)) continue;
+      const s = document.createElement("span");
+      s.textContent = w;
+      s.style.gridColumn = colOf(w - 1);
+      weekAxis.appendChild(s);
+    }
+
+    const yearAxis = document.createElement("div");
+    yearAxis.className = "year-axis";
+    yearAxis.style.gridTemplateRows = rowTemplate;
+    for (let y = 0; y < years; y += YEAR_GROUP) {
+      const s = document.createElement("span");
+      s.textContent = y;
+      s.style.gridRow = rowOf(y);
+      yearAxis.appendChild(s);
+    }
+
+    const chart = document.createElement("div");
+    chart.className = "chart";
+    chart.append(weekAxis, yearAxis, grid);
+    frag.appendChild(chart);
+    host.replaceChildren(frag);
+
+    // Tooltip
+    const tip = $("tip");
+    grid.onmousemove = e => {
+      const t = e.target;
+      if (!t.classList.contains("cell")) { tip.style.opacity = 0; return; }
+      const y = +t.dataset.y, w = +t.dataset.w;
+      const start = new Date(addYears(birth, y).getTime() + w * 7 * DAY);
+      const status = t.classList.contains("now") ? " · this week" : "";
+      tip.textContent = `Age ${y}, week ${w + 1} · ${fmt(start)}${status}`;
+      tip.style.opacity = 1;
+      const x = Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8);
+      tip.style.left = x + "px";
+      tip.style.top = (e.clientY + 14) + "px";
+    };
+    grid.onmouseleave = () => { tip.style.opacity = 0; };
+  }
+
+  // ---------- Wire up ----------
+  let settings = { ...DEFAULTS };
+
+  function readInputs() {
+    const y = Math.round(Number(yearsEl.value));
+    settings = {
+      birthday: birthdayEl.value,
+      years: Number.isFinite(y) && y >= 1 ? Math.min(150, y) : DEFAULTS.years,
+    };
+    save(settings);
+    render(settings);
+  }
+
+  birthdayEl.addEventListener("change", readInputs);
+  yearsEl.addEventListener("change", readInputs);
+  yearsEl.addEventListener("input", () => { if (yearsEl.value) readInputs(); });
+
+  let rt;
+  window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => render(settings), 100); });
+
+  // Re-render at midnight-ish so the current week advances if the tab stays open
+  setInterval(() => render(settings), 60 * 60 * 1000);
+
+  (async () => {
+    settings = await load();
+    birthdayEl.value = settings.birthday;
+    yearsEl.value = settings.years;
+    birthdayEl.max = new Date().toISOString().slice(0, 10);
+    render(settings);
+    requestPersistence();
+  })();
+})();
+</script>
+</body>
+</html>
