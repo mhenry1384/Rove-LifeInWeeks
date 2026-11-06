@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+<style>
+.i{fill:#1c1b19}.a{fill:#d94f2b}.e{fill:none;stroke:#1c1b19;stroke-width:1.2;opacity:.45}
+@media (prefers-color-scheme:dark){.i{fill:#ece9e2}.a{fill:#ff6a3d}.e{stroke:#ece9e2}}
+</style>
+<rect class="i" x="1" y="1" width="6" height="6" rx="1.2"/>
+<rect class="i" x="9" y="1" width="6" height="6" rx="1.2"/>
+<rect class="i" x="17" y="1" width="6" height="6" rx="1.2"/>
+<rect class="i" x="25" y="1" width="6" height="6" rx="1.2"/>
+<rect class="i" x="1" y="9" width="6" height="6" rx="1.2"/>
+<rect class="i" x="9" y="9" width="6" height="6" rx="1.2"/>
+<rect class="i" x="17" y="9" width="6" height="6" rx="1.2"/>
+<rect class="i" x="25" y="9" width="6" height="6" rx="1.2"/>
+<rect class="i" x="1" y="17" width="6" height="6" rx="1.2"/>
+<rect class="a" x="9" y="17" width="6" height="6" rx="1.2"/>
+<rect class="e" x="17.6" y="17.6" width="4.8" height="4.8" rx="1.2"/>
+<rect class="e" x="25.6" y="17.6" width="4.8" height="4.8" rx="1.2"/>
+<rect class="e" x="1.6" y="25.6" width="4.8" height="4.8" rx="1.2"/>
+<rect class="e" x="9.6" y="25.6" width="4.8" height="4.8" rx="1.2"/>
+<rect class="e" x="17.6" y="25.6" width="4.8" height="4.8" rx="1.2"/>
+<rect class="e" x="25.6" y="25.6" width="4.8" height="4.8" rx="1.2"/>
+</svg>
