@@ -53,7 +53,6 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px;
   }
   .field input[type=number] { width: 90px; }
-  .storage-note { font-size: 12px; color: var(--muted); margin-left: auto; max-width: 320px; }
 
   .stats { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0 0 18px; }
   .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
@@ -84,7 +83,6 @@
     opacity: 0; transition: opacity .1s;
   }
   .empty-state { color: var(--muted); padding: 40px 0; text-align: center; }
-  footer { margin-top: 24px; font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -94,7 +92,7 @@
     <p>Each row is a year. Each box is a week. Filled boxes are weeks you've already lived.</p>
   </header>
 
-  <section class="controls">
+  <section class="controls" id="controls">
     <div class="field">
       <label for="birthday">Birthday</label>
       <input type="date" id="birthday">
@@ -103,14 +101,12 @@
       <label for="years">Years to show</label>
       <input type="number" id="years" min="1" max="150" step="1">
     </div>
-    <div class="storage-note" id="storageNote"></div>
   </section>
 
   <section class="stats" id="stats"></section>
 
   <section id="chartHost"></section>
 
-  <footer>Settings are saved in this browser only (localStorage + IndexedDB).</footer>
 </div>
 <div class="tip" id="tip"></div>
 
@@ -170,16 +166,11 @@
     lsSet(v); idbSet(LS_KEY, v);
   }
   async function requestPersistence() {
-    const note = $("storageNote");
-    if (!navigator.storage || !navigator.storage.persist) {
-      note.textContent = "Saved locally. This browser doesn't support persistent storage.";
-      return;
-    }
-    let persisted = await navigator.storage.persisted();
-    if (!persisted) persisted = await navigator.storage.persist();
-    note.textContent = persisted
-      ? "✓ Saved in persistent storage — survives cache clears (not a full “clear site data”)."
-      : "Saved locally. Browser didn't grant persistent storage, so it may be evicted under storage pressure.";
+    try {
+      if (navigator.storage && navigator.storage.persist && !(await navigator.storage.persisted())) {
+        await navigator.storage.persist();
+      }
+    } catch {}
   }
 
   // ---------- Date math ----------
@@ -343,6 +334,8 @@
 
   (async () => {
     settings = await load();
+    // If settings were already saved, move the controls below the chart.
+    if (parseDate(settings.birthday)) $("chartHost").after($("controls"));
     birthdayEl.value = settings.birthday;
     yearsEl.value = settings.years;
     birthdayEl.max = new Date().toISOString().slice(0, 10);
